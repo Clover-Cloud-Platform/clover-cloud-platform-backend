@@ -79,27 +79,22 @@ def send_mail(subject, data, auth_code):
     server.quit()
 
 
-
-
 @sio.on('ConnectServer')
 def new_server(sid, data):
     server_list[sid] = data
-
+    print(server_list)
 
 
 @sio.on('CreateNewInstance')
 def create_event(sid, data):
-
     cont_name = data['cont_name']
     cont_code = "c" + ''.join(random.SystemRandom().choice(string.ascii_lowercase + string.digits) for _ in range(6))
     cont_list = users.find_one({'uid': data['uid']})['cont_list']
-
 
     if cont_list[0] == False:
         cont_list[0] = {cont_name: cont_code}
     else:
         cont_list[1] = {cont_name: cont_code}
-
 
     for key in server_list:
         if len(server_list[key]) < 16:
@@ -108,7 +103,9 @@ def create_event(sid, data):
         else:
             print('No cont')
 
-    sio.emit('CreateInstance', {'cont_code': cont_code, 'uid': data['uid'], 'cont_name': data['cont_name'], 'cont_list': cont_list}, room = instance_sid)
+    sio.emit('CreateInstance',
+             {'cont_code': cont_code, 'uid': data['uid'], 'cont_name': data['cont_name'], 'cont_list': cont_list},
+             room=instance_sid)
 
 
 @sio.on('InstanceCreated')
@@ -119,31 +116,42 @@ def create_ok(sid, data):
         sio.emit('InstanceCreated', {'name': data['cont_name'], 'code': data['cont_code']})
 
 
-
 @sio.on('GetUsername')
 def get_username(sid, data):
     if users.find_one({'uid': str(data)}) != None:
         username = users.find_one({'uid': str(data)})['username']
         user_cont_list = users.find_one({'uid': str(data)})['cont_list']
         cont_list = []
-        cont_codes = []
-        run_cont = str(subprocess.run(
-            "lxc list --format=json | jq -r '.[] | select(.state.status == \"Running\") | .name + \",\"'", shell=True,
-            stdout=subprocess.PIPE, text=True).stdout)
-        running = []
+        print('ok1')
+        print(user_cont_list)
         for ind in user_cont_list:
             if ind != False:
                 for key in ind:
-                    cont_list.append(key)
-                    cont_codes.append(ind[key])
-                    if ind[key] in run_cont:
-                        running.append(True)
-                    else:
-                        running.append(False)
-        user = {'username': username, 'cont_list': cont_list, 'cont_codes': cont_codes, 'running': running}
-        sio.emit('Username', user)
+                    print(key)
+                    for s_key in server_list:
+                        print(s_key)
+                        print(ind[key])
+                        print(server_list[s_key])
+                        if ind[key] in server_list[s_key]:
+                            print('ok2')
+                            sio.emit('GetRunningInstances',
+                                     {'username': username, 'user_cont_list': user_cont_list, 'sid': sid}, room=s_key)
+            else:
+                cont_list.append(False)
+
+        if cont_list == [False, False]:
+            user = {'username': username, 'cont_list': [], 'cont_codes': [], 'running': []}
+            sio.emit('Username', user)
+
     else:
         sio.emit('Username', False)
+
+
+@sio.on('RunningInstances')
+def running(sid, data):
+    user = {'username': data['username'], 'cont_list': data['cont_list'], 'cont_codes': data['cont_codes'],
+            'running': data['running']}
+    sio.emit('Username', user, room=data['sid'])
 
 
 @sio.on('StartInstance')
@@ -155,16 +163,23 @@ def cont_start(sid, data):
         cont_code = cont_list[0][cont_name]
         for key in server_list:
             if cont_code in server_list[key]:
-                sio.emit('StartInstance', cont_code, room = key)
+                sio.emit('StartInstance', {'cont_code': cont_code, 'cont_name': data['cont_name'], 'sid': sid},
+                         room=key)
 
     elif data['cont_name'] in cont_list[1]:
         cont_code = cont_list[1][cont_name]
         for key in server_list:
             if cont_code in server_list[key]:
-                sio.emit('StartInstance', cont_code, room = key)
+                sio.emit('StartInstance', {'cont_code': cont_code, 'cont_name': data['cont_name'], 'sid': sid},
+                         room=key)
 
     else:
         pass
+
+
+@sio.on('InstanceStarted')
+def started(sid, data):
+    sio.emit('InstanceStarted', data['cont_name'], room=data['sid'])
 
 
 @sio.on('StopInstance')
@@ -176,16 +191,21 @@ def cont_stop(sid, data):
         cont_code = cont_list[0][cont_name]
         for key in server_list:
             if cont_code in server_list[key]:
-                sio.emit('StopInstance', cont_code, room = key)
+                sio.emit('StopInstance', {'cont_code': cont_code, 'cont_name': data['cont_name'], 'sid': sid}, room=key)
 
     elif data['cont_name'] in cont_list[1]:
         cont_code = cont_list[1][cont_name]
         for key in server_list:
             if cont_code in server_list[key]:
-                sio.emit('StopInstance', cont_code, room = key)
+                sio.emit('StopInstance', {'cont_code': cont_code, 'cont_name': data['cont_name'], 'sid': sid}, room=key)
 
     else:
         pass
+
+
+@sio.on('InstanceStopped')
+def stopped(sid, data):
+    sio.emit('InstanceStopped', data['cont_name'], room=data['sid'])
 
 
 @sio.on('DeleteInstance')
@@ -201,9 +221,8 @@ def cont_delete(sid, data):
 
         for key in server_list:
             if cont_code in server_list[key]:
-                sio.emit('DeleteInstance', cont_code, room = key)
+                sio.emit('DeleteInstance', cont_code, room=key)
                 server_list[key].remove(cont_code)
-
 
         cont_list.pop(0)
         cont_list.append(False)
@@ -217,9 +236,8 @@ def cont_delete(sid, data):
 
         for key in server_list:
             if cont_code in server_list[key]:
-                sio.emit('DeleteInstance', cont_code, room = key)
+                sio.emit('DeleteInstance', cont_code, room=key)
                 server_list[key].remove(cont_code)
-
 
         cont_list.pop(1)
         cont_list.append(False)
