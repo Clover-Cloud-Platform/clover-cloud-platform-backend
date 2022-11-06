@@ -10,11 +10,11 @@ sio.connect('your main server adress')
 x_server_number = int(open('x_server_number.txt', 'r').read())
 
 
-cont_list = (subprocess.run(f"lxc list --format=json | jq -r '.[] | .name", shell=True,stdout=subprocess.PIPE, text=True).stdout).split('\n')
+cont_list = (subprocess.run(f"lxc list --format=json | jq -r '.[] | .name'", shell=True,stdout=subprocess.PIPE, text=True).stdout).split('\n')
 
-print(x_server_number)
+
 sio.emit('ConnectServer', cont_list)
-print('ok')
+
 
 @sio.on('CreateInstance')
 def create(data):
@@ -55,12 +55,14 @@ def create(data):
 
 @sio.on('StartInstance')
 def start(data):
-    print(subprocess.run(f"sudo lxc start {data}", shell=True, stdout=subprocess.PIPE, text=True).stdout)
+    print(subprocess.run(f"sudo lxc start {data['cont_code']}", shell=True, stdout=subprocess.PIPE, text=True).stdout)
+    sio.emit('InstanceStarted', {'sid': data['sid'], 'cont_name': data['cont_name']})
 
 
 @sio.on('StopInstance')
 def stop(data):
-    print(subprocess.run(f"sudo lxc stop {data}", shell=True, stdout=subprocess.PIPE, text=True).stdout)
+    print(subprocess.run(f"sudo lxc stop {data['cont_code']}", shell=True, stdout=subprocess.PIPE, text=True).stdout)
+    sio.emit('InstanceStopped', {'sid': data['sid'], 'cont_name': data['cont_name']})
 
 
 @sio.on('DeleteInstance')
@@ -70,3 +72,27 @@ def delete(data):
     print(subprocess.run(f"sudo lxc delete {data} --force", shell=True, stdout=subprocess.PIPE, text=True).stdout)
 
     cont_list.remove(data)
+
+
+@sio.on("GetRunningInstances")
+def running(data):
+    print('ok')
+    cont_list = []
+    cont_codes = []
+
+    run_cont = str(subprocess.run("lxc list --format=json | jq -r '.[] | select(.state.status == \"Running\") | .name + \",\"'",
+                                  shell=True, stdout=subprocess.PIPE, text=True).stdout)
+    running = []
+    for ind in data['user_cont_list']:
+        print(ind)
+        if ind != False:
+            for key in ind:
+                cont_list.append(key)
+                print('cont_list')
+                cont_codes.append(ind[key])
+                if ind[key] in run_cont:
+                    running.append(True)
+                else:
+                    running.append(False)
+    user = {'username': data['username'], 'cont_list': cont_list, 'cont_codes': cont_codes, 'running': running, 'sid': data['sid']}
+    sio.emit('RunningInstances', user)
