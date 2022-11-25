@@ -5,7 +5,7 @@ import os
 import socketio
 
 sio = socketio.Client()
-sio.connect('https://f9d5-94-29-126-249.eu.ngrok.io')
+sio.connect('your ngrok adress')
 
 with open("db.json", "r") as read_file:
     server_data = json.load(read_file)
