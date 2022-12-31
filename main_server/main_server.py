@@ -7,7 +7,7 @@ import smtplib as smtp
 import rsa
 import socketio
 import eventlet
-from getpass4 import getpass
+#from getpass4 import getpass
 from pymongo import MongoClient
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -23,8 +23,8 @@ sio = socketio.Server(cors_allowed_origins='*',
 app = socketio.WSGIApp(sio)
 subserver_list = {}
 cont_server_list = {}
-email = "your email"
-password = getpass("your password")
+email = "email"
+password = "password"
 client = MongoClient("mongodb key")
 users = client.test.users
 
@@ -78,10 +78,21 @@ def new_subserver(sid, data):
     subserver_list[sid] = data
 
 
+@sio.on('UpdateServerData')
+def update_sever_data(sid, data):
+    subserver_list[sid] = data
+
+
 @sio.on('ContConnected')
 def cont_connected(sid, data):
     cont_server_list[data] = sid
-    print(cont_server_list)
+
+    for subserver_sid in subserver_list:
+        if data in subserver_list[subserver_sid]['cont_list']:
+            sio.emit('StartXServer', subserver_list[subserver_sid]['x_server_number'])
+
+            subserver_list[subserver_sid]['x_server_number'] += 1
+            sio.emit('UpdateServerData', subserver_list[subserver_sid], room=subserver_sid)
 
 
 @sio.on('SignUp')
@@ -91,7 +102,7 @@ def auth_event(sid, data):
         send_mail('[Clover Cloud Platform Verification]', data, auth_code)
         sio.emit('SignUpRes', {'code': auth_code, 'error': False})
     else:
-        sio.on('SignUpRes', {'code': False, 'error': True})
+        sio.emit('SignUpRes', {'code': False, 'error': True})
 
 
 @sio.on('AuthByEmail')
@@ -134,7 +145,7 @@ def create_event(sid, data):
         for sid in subserver_list:
             if len(subserver_list[sid]['users_list']) < 8:
                 subserver_sid = sid
-                cont_list[data['cont_name']] = cont_code
+                cont_list[data['cont_name']] = [cont_code, False]
                 sio.emit('CreateNewInstance', {'cont_code': cont_code, 'cont_name': data['cont_name'],
                                                'cont_list': cont_list, 'uid': data['uid']}, room=subserver_sid)
                 break
@@ -142,7 +153,7 @@ def create_event(sid, data):
         for sid in subserver_list:
             if data['uid'] in subserver_list[sid]['users_list']:
                 subserver_sid = sid
-                cont_list[data['cont_name']] = cont_code
+                cont_list[data['cont_name']] = [cont_code, False]
                 sio.emit('CreateNewInstance', {'cont_code': cont_code, 'cont_name': data['cont_name'],
                                                'cont_list': cont_list, 'uid': data['uid']}, room=subserver_sid)
                 break
@@ -171,8 +182,7 @@ def get_username(sid, data):
 @sio.on('RunningInstances')
 def running(sid, data):
     print('running')
-    sio.emit('Username', {'username': data['username'], 'cont_list': data['cont_list'],
-                          'running': data['running']}, room=data['user_sid'])
+    sio.emit('Username', {'username': data['username'], 'cont_list': data['cont_list']}, room=data['user_sid'])
 
 
 @sio.on('StartInstance')
@@ -182,7 +192,7 @@ def cont_start(sid, data):
 
     for subserver_sid in subserver_list:
         if data['uid'] in subserver_list[subserver_sid]['users_list']:
-            sio.emit('StartInstance', {'cont_code': user['cont_list'][cont_name],
+            sio.emit('StartInstance', {'cont_code': user['cont_list'][cont_name][0],
                                        'cont_name': cont_name, 'user_sid': sid}, room=subserver_sid)
             break
 
@@ -199,17 +209,15 @@ def cont_start(sid, data):
 
     for subserver_sid in subserver_list:
         if data['uid'] in subserver_list[subserver_sid]['users_list']:
-            sio.emit('StopInstance', {'cont_code': user['cont_list'][cont_name],
+            sio.emit('StopInstance', {'cont_code': user['cont_list'][cont_name][0],
                                       'cont_name': cont_name, 'user_sid': sid}, room=subserver_sid)
             break
 
 
 @sio.on('InstanceStopped')
-def cont_started(sid, data):
+def cont_stopped(sid, data):
+    cont_server_list.pop(data['cont_code'])
     sio.emit('InstanceStopped', data['cont_name'], room=data['user_sid'])
-    for cont_sid in cont_server_list:
-        if data['cont_code'] in cont_server_list[cont_sid]:
-            cont_server_list.pop(cont_sid)
 
 
 @sio.on('DeleteInstance')
@@ -231,7 +239,7 @@ def get_cont_data(sid, data):
     user = users.find_one({'uid': data['uid']})
 
     for cont_name in user['cont_list']:
-        if user['cont_list'][cont_name] == data['instance_id']:
+        if user['cont_list'][cont_name][0] == data['instance_id']:
             sio.emit("InstanceData", {'username': user['username'], 'instance_name': cont_name})
             break
 
@@ -244,6 +252,21 @@ def run_gazebo(sid, data):
 @sio.on('GazeboModels')
 def gazebo_models(sid, data):
     sio.emit('GazeboModels', data['aruco_map'], room=data['user_sid'])
+
+
+@sio.on('GetGazeboState')
+def gazebo_state(sid, data):
+    sio.emit('GetGazeboState', {'user_sid': sid}, room=cont_server_list[data])
+
+
+@sio.on('GazeboStateRes')
+def gazebo_stat_res(sid, data):
+    sio.emit('GazeboStateRes', data['gazebo_state'], room=data['user_sid'])
+
+
+"""@sio.on('CloverTelemetry')
+def clover_telemetry(sid, data):
+    print(data)"""
 
 
 if __name__ == '__main__':
