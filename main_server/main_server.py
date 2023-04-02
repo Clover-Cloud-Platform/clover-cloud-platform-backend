@@ -1,4 +1,5 @@
 #   import standard python libs
+import math
 import uuid
 import string
 import random
@@ -7,7 +8,7 @@ import smtplib as smtp
 import rsa
 import socketio
 import eventlet
-#from getpass4 import getpass
+from getpass4 import getpass
 from pymongo import MongoClient
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -23,9 +24,12 @@ sio = socketio.Server(cors_allowed_origins='*',
 app = socketio.WSGIApp(sio)
 subserver_list = {}
 cont_server_list = {}
-email = "email"
-password = "password"
-client = MongoClient("mongodb key")
+stream_telemetry_list = {}
+terminals_list = {}
+leds_list = {}
+email = getpass('Email')
+password = getpass('Password')
+client = MongoClient("your mongodb key")
 users = client.test.users
 
 
@@ -181,7 +185,7 @@ def get_username(sid, data):
 
 @sio.on('RunningInstances')
 def running(sid, data):
-    print('running')
+    print(data)
     sio.emit('Username', {'username': data['username'], 'cont_list': data['cont_list']}, room=data['user_sid'])
 
 
@@ -216,8 +220,8 @@ def cont_start(sid, data):
 
 @sio.on('InstanceStopped')
 def cont_stopped(sid, data):
-    cont_server_list.pop(data['cont_code'])
     sio.emit('InstanceStopped', data['cont_name'], room=data['user_sid'])
+    cont_server_list.pop(data['cont_code'])
 
 
 @sio.on('DeleteInstance')
@@ -246,17 +250,27 @@ def get_cont_data(sid, data):
 
 @sio.on('RunGazebo')
 def run_gazebo(sid, data):
-    sio.emit('RunGazebo', {'cont_code': data, 'user_sid': sid}, room=cont_server_list[data])
+    print('RunGazebo', sid)
+    sio.emit('RunGazebo', room=terminals_list[data])
+    sio.emit('GetGazeboModels', sid, room=cont_server_list[data])
+    sio.emit('StartStreamTelemetry', sid, room=terminals_list[data])
+
+
+@sio.on('GetGazeboModels')
+def get_gazebo_models(sid, data):
+    sio.emit('GetGazeboModels', sid, room=cont_server_list[data])
 
 
 @sio.on('GazeboModels')
 def gazebo_models(sid, data):
-    sio.emit('GazeboModels', data['aruco_map'], room=data['user_sid'])
+    sio.emit('GazeboModels', {'aruco_map': data['aruco_map'], 'user_objects': data['user_objects']},
+             room=data['user_sid'])
 
 
 @sio.on('GetGazeboState')
 def gazebo_state(sid, data):
-    sio.emit('GetGazeboState', {'user_sid': sid}, room=cont_server_list[data])
+    print('GetGazeboState')
+    sio.emit('GetGazeboState', {'cont_code': data, 'user_sid': sid}, room=cont_server_list[data])
 
 
 @sio.on('GazeboStateRes')
@@ -264,9 +278,128 @@ def gazebo_stat_res(sid, data):
     sio.emit('GazeboStateRes', data['gazebo_state'], room=data['user_sid'])
 
 
-"""@sio.on('CloverTelemetry')
+@sio.on('TerminalConnected')
+def terminal_connected(sid, data):
+    terminals_list[data] = sid
+
+
+@sio.on('CloverTelemetry')
 def clover_telemetry(sid, data):
-    print(data)"""
+    if not math.isnan(data['position'][0]):
+        print(data)
+        user_sid = data.pop('sid')
+        sio.emit('CloverPosition', data, room=user_sid)
+
+
+@sio.on('LedState')
+def led_state(sid, data):
+    if not math.isnan(data['leds'][0]):
+        print(data)
+        sio.emit('LedState', data['leds'], room=data['sid'])
+
+
+@sio.on('ExecuteCommand')
+def execute_command(sid, data):
+    print('Command', sid)
+    for cont_code in terminals_list:
+        print(terminals_list)
+        if cont_code == data['instanceID']:
+            sio.emit('ExecuteCommand', {'command': data['command'], 'user_sid': sid},
+                     room=terminals_list[cont_code])
+
+
+@sio.on('CommandOutput')
+def command_output(sid, data):
+    print(data)
+    sio.emit('CommandOutput', {'output': data['output'], 'id': data['id']}, room=data['user_sid'])
+
+
+@sio.on('DebugOutput')
+def debug_output(sid, data):
+    print('DEBUG_INFO: ' + str(data))
+
+
+@sio.on('GetFiles')
+def get_files(sid, data):
+    sio.emit('GetFiles', sid, room=cont_server_list[data])
+
+
+@sio.on('Files')
+def files(sid, data):
+    sio.emit('Files', data['files'], room=data['user_sid'])
+
+
+@sio.on('MoveItem')
+def move_item(sid, data):
+    sio.emit('MoveItem', {'source': data['source'], 'target': data['target']}, room=cont_server_list[data['instanceID']])
+
+
+@sio.on('EditName')
+def edit_file_name(sid, data):
+    sio.emit('EditName', {'path': data['path'], 'newName': data['newName']}, room=cont_server_list[data['instanceID']])
+
+
+@sio.on('CreateNewFile')
+def create_new_file(sid, data):
+    sio.emit('CreateNewFile', data['path'], room=cont_server_list[data['instanceID']])
+
+
+@sio.on('DeleteFile')
+def delete_file(sid, data):
+    sio.emit('DeleteFile', data['path'], room=cont_server_list[data['instanceID']])
+
+
+@sio.on('CreateNewDirectory')
+def create_new_directory(sid, data):
+    sio.emit('CreateNewDirectory', data['path'], room=cont_server_list[data['instanceID']])
+
+
+@sio.on('DeleteDirectory')
+def delete_file(sid, data):
+    sio.emit('DeleteDirectory', data['path'], room=cont_server_list[data['instanceID']])
+
+
+@sio.on('GetFileContent')
+def get_file_content(sid, data):
+    sio.emit('GetFileContent', {'path': data['path'], 'user_sid': sid}, room=cont_server_list[data['instanceID']])
+
+
+@sio.on('FileContent')
+def file_content(sid, data):
+    sio.emit('FileContent', {'path': data['path'], 'content': data['content']}, room=data['user_sid'])
+
+
+@sio.on('WriteFile')
+def write_file(sid, data):
+    sio.emit('WriteFile', {'path': data['path'], 'value': data['value']}, room=cont_server_list[data['instanceID']])
+
+
+@sio.on('StopGazebo')
+def stop_gazebo(sid, data):
+    sio.emit('StopGazebo', sid, room=cont_server_list[data])
+
+
+@sio.on('GazeboStopped')
+def gazebo_stopped(sid, data):
+    sio.emit('GazeboStopped', '1', room=data)
+
+
+@sio.on('AddCube')
+def add_cube(sid, data):
+    sio.emit('AddCube', '1', room=cont_server_list[data])
+
+
+@sio.on('EditCube')
+def edit_cube(sid, data):
+    instance_id = data.pop('instanceID')
+    sio.emit('EditCube', data, cont_server_list[instance_id])
+
+
+@sio.on('EditMarker')
+def edit_marker(sid, data):
+    print(data)
+    instance_id = data.pop('instanceID')
+    sio.emit('EditMarker', data, cont_server_list[instance_id])
 
 
 if __name__ == '__main__':
