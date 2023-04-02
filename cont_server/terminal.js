@@ -4,7 +4,7 @@ const io = require("socket.io-client")
 const Convert = require('ansi-to-html');
 const { exec } = require("child_process");
 
-const socket = io("http://192.168.8.108:8000");
+const socket = io("yor local adress");
 
 socket.emit('TerminalConnected', os.hostname());
 
