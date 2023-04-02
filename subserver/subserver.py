@@ -1,10 +1,9 @@
 import json
-
 from pylxd import Client
 import socketio
 
 sio = socketio.Client()
-sio.connect('your ngrok')
+sio.connect('your main server adress')
 client = Client()
 
 with open("db.json", "r") as read_file:
@@ -45,8 +44,11 @@ def create_instance(data):
 @sio.on('GetRunningInstances')
 def running(data):
     cont_list = data['cont_list']
+    print(cont_list)
     for cont in cont_list:
-        if client.instances.get(cont_list[cont][0]) == 'Running':
+        print(cont)
+        print(client.instances.get(cont_list[cont][0]).status)
+        if client.instances.get(cont_list[cont][0]).status == 'Running':
             cont_list[cont][1] = True
         else:
             pass
@@ -62,7 +64,7 @@ def start(data):
 
 @sio.on('StopInstance')
 def start(data):
-    client.instances.get(data['cont_code']).stop()
+    client.instances.get(data['cont_code']).stop(wait=True)
     sio.emit('InstanceStopped', {'user_sid': data['user_sid'], 'cont_name': data['cont_name'],
                                  'cont_code': data['cont_code']})
 
@@ -71,8 +73,8 @@ def start(data):
 def delete(data):
     global server_data
 
-    client.instances.get(data['cont_code']).delete()
-    server_data['cont_list'].remove(data['cont_code'])
+    client.instances.get(data['cont_code'][0]).delete()
+    server_data['cont_list'].remove(data['cont_code'][0])
 
     sio.emit('UpdateServerData', server_data)
 
