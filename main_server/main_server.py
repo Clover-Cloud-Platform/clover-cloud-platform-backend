@@ -26,7 +26,7 @@ app = socketio.WSGIApp(sio)
 client = MongoClient("your mongodb key")
 users = client.test.users  # connect to mongodb
 
-email = getpass("email") declare variables
+email = getpass("email") #declare variables
 password = getpass("password")
 subserver_list = {}
 cont_server_list = {}
