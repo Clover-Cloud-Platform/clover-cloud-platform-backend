@@ -12,6 +12,6 @@ wget https://raw.githubusercontent.com/Clover-Cloud-Platform/clover-cloud-platfo
 
 wget https://raw.githubusercontent.com/Clover-Cloud-Platform/clover-cloud-platform-backend/main/subserver/db.json
 
-sed -i "s,your main server adress,${address}," subserver.py
+sed -i "s,main_server_address,${address}," subserver.py
 
 python3 subserver.py
