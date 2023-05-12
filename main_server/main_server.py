@@ -1,82 +1,36 @@
 #   import standard python libs
+import os
 import math
 import uuid
 import string
 import random
 import smtplib as smtp
+from datetime import datetime
 #   import libs
 import rsa
 import socketio
 import eventlet
-from getpass4 import getpass
+import requests
+#   from getpass4 import getpass
 from pymongo import MongoClient
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-with open('private.pem', 'rb') as f:
-    privkey = rsa.PrivateKey.load_pkcs1(f.read())  # Open the file with the private key for decryption
-with open('public.pem', 'rb') as f:
-    pubkey = rsa.PublicKey.load_pkcs1(f.read())  # Open the file with the public key for encryption
 
 sio = socketio.Server(cors_allowed_origins='*',
                       cors_allowed_headers="Origin, X-Requested-With, Content-Type, Accept",
                       ping_timeout=60)  # Create socketio server object
 app = socketio.WSGIApp(sio)
 
-client = MongoClient("your mongodb key")
+
+client = MongoClient(os.getenv("MONGODB_KEY"))
+templates = client.test.templates
 users = client.test.users  # connect to mongodb
 
-email = getpass("email") #declare variables
-password = getpass("password")
 subserver_list = {}
 cont_server_list = {}
 stream_telemetry_list = {}
 terminals_list = {}
-leds_list = {}
-
-
-def send_mail(subject, data, auth_code):  # send mail function
-    msg = MIMEMultipart('alternative')
-    msg['Subject'] = subject
-    msg['From'] = email
-    msg['To'] = data['email']
-    html = f"""\
-    <!DOCTYPE html>
-    <html>
-        <head>
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-            <title>Verify your email</title>
-            <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Google+Sans:400,500,700|Roboto:400,400italic,500,500italic,700,700italic|Roboto+Mono:400,500,700&amp;display=swap">
-            <style>
-    @media screen and (max-width: 600px) {{
-      .header {{
-        font-size: 20px;
-      }}
-
-      .container {{
-        margin: 5px;
-        padding: 5px;
-      }}
-    }}
-    </style>
-        </head>
-        <body style="margin: 0;">
-            <div class="container" style="background-color: #f5f3ff; padding: 20px; border-radius: 10px; margin: 20px;">
-                <img src="https://github.com/Clover-Cloud-Platform/clover-cloud-platform-frontend/raw/master/src/assets/email-logo.png" alt="logo" width="100px" height="100px" style="display: block; margin-left: auto; margin-right: auto;">
-                <p class="header" style="font-family: Google Sans,Noto Sans,sans-serif; line-height: 1.2em; font-weight: 400; text-align: center; font-size: 30px; color: #000000e0;">Welcome to the Clover Cloud Platform!</p><p class="text" style="font-family: Roboto,sans-serif; font-size: 16px; line-height: 1.5em; font-weight: 400; text-align: center; color: #000000e0;">Your verification code is:</p>
-                <p class="code" style="font-family: Google Sans,Noto Sans,sans-serif; font-size: 48px; font-weight: 700; text-align: center; color: #000000e0; letter-spacing: 4px; margin: 14px 0; width: 100%;">{str(auth_code)}</p>
-                <p class="text" style="font-family: Roboto,sans-serif; font-size: 16px; line-height: 1.5em; font-weight: 400; text-align: center; color: #000000e0;">All you have to do is copy the verification code and paste it to your form to complete the registration process.</p>
-            </div>
-        </body>
-    </html>
-    """
-    msg.attach(MIMEText(html, 'html'))
-    server = smtp.SMTP_SSL('smtp.yandex.com')  # connect to smtp yandex server
-    server.ehlo(email)
-    server.login(email, password)
-    server.sendmail(email, data['email'], msg.as_string())
-    server.quit()
 
 
 @sio.on('ConnectSubServer')  # add subserver sid to dict
@@ -101,44 +55,17 @@ def cont_connected(sid, data):
             sio.emit('UpdateServerData', subserver_list[subserver_sid], room=subserver_sid)  # update xserver number
 
 
-@sio.on('SignUp')  # sign up user function
-def auth_event(sid, data):
-    if users.find_one({'email': data['email']}) is None:  # check email availability
-        auth_code = random.randint(100000, 999999)  # generate code
-        send_mail('[Clover Cloud Platform Verification]', data, auth_code)  # use send mail funct
-        sio.emit('SignUpRes', {'code': auth_code, 'error': False})  # send code to user
-    else:
-        sio.emit('SignUpRes', {'code': False, 'error': True})  # email is not availible
-
-
-@sio.on('AuthByEmail')  # add user to db funct
+@sio.on('AddNewUser')  # add user to db funct
 def add_user_event(sid, data):
-    if data['resend_code'] is True:  # If the user entered the wrong code
-        auth_code = random.randint(100000, 999999)
-        send_mail('[Clover Cloud Platform Verification]', data, auth_code)
-    else:
+    if users.find_one({'uid': data}) is None:
         user = {
-            'email': data['email'],
-            'uid': str(uuid.uuid4()),
-            'username': data['username'],
-            'password': rsa.encrypt(bytes(data['password'], 'utf-8'), pubkey),
-            'cont_list': {}
+            'uid': data,
+            'cont_list': {},
+            'templates': []
         }
         users.insert_one(user)  # else add user to db
-        sio.emit('AuthByEmailRes', user['uid'])  # registration successful
-
-
-@sio.on('SignIn')  # sign in user funct
-def sign_in(sid, data):
-    user = users.find_one({'email': data['email']})  # find user in db
-
-    if user is None:
-        sio.emit('SignInRes', {'error': 'email', 'uid': False, 'cont_list': False})  # if the user is not in ds
     else:
-        if (rsa.decrypt(user['password'], privkey)).decode() == data['password']:  # check password
-            sio.emit('SignInRes', {'error': False, 'uid': user['uid'], 'cont_list': user['cont_list']})  # successful
-        else:
-            sio.emit('SignInRes', {'error': "password", 'uid': False, 'cont_list': False})  # if the password is wrong
+        pass
 
 
 @sio.on('CreateNewInstance')  # create new cont
@@ -174,7 +101,7 @@ def created(sid, data):
     sio.emit('InstanceCreated', {'name': data['cont_name'], 'code': data['cont_code']})  # confirm socker from client
 
 
-@sio.on('GetUsername')  # getting username and running conts for client by uid
+@sio.on('GetInstances')  # getting username and running conts for client by uid
 def get_username(sid, data):
     user = users.find_one({'uid': data})  # find user in db
 
@@ -182,16 +109,15 @@ def get_username(sid, data):
         for subserver_sid in subserver_list:
             if data in subserver_list[subserver_sid]['users_list']:  # find user subserver
                 # send get running conts socket to subserver
-                sio.emit('GetRunningInstances', {'username': user['username'],
-                                                 'cont_list': user['cont_list'], 'user_sid': sid}, room=subserver_sid)
+                sio.emit('Instances', {'cont_list': user['cont_list'], 'user_sid': sid}, room=subserver_sid)
     else:  # else there are no containers
-        sio.emit('Username', {'username': user['username'], 'cont_list': {}})
+        sio.emit('Instances', {})
 
 
 @sio.on('RunningInstances')  # running cont list to client
 def running(sid, data):
     # send list of running conts
-    sio.emit('Username', {'username': data['username'], 'cont_list': data['cont_list']}, room=data['user_sid'])
+    sio.emit('Instances', data['cont_list'], room=data['user_sid'])
 
 
 @sio.on('StartInstance')  # start cont socket
@@ -248,13 +174,98 @@ def cont_delete(sid, data):
 
 @sio.on('GetInstanceData')  # get cont data for client
 def get_cont_data(sid, data):
+    access = False
+    cont_name = None
     user = users.find_one({'uid': data['uid']})
 
     for cont_name in user['cont_list']:
         if user['cont_list'][cont_name][0] == data['instance_id']:
             # send data to client
-            sio.emit("InstanceData", {'username': user['username'], 'instance_name': cont_name})
+            cont_name = cont_name
+            access = True
             break
+
+    if access:
+        if data['instance_id'] in cont_server_list:
+            sio.emit("InstanceData", {'instance_name': cont_name,
+                                      'instance_state': 'Running', 'user_templates': user['templates']})
+
+        else:
+            sio.emit("InstanceData", {'instance_name': cont_name,
+                                      'instance_state': 'Stopped', 'user_templates': user['templates']})
+
+    else:
+        sio.emit("InstanceData", {'instance_name': None, 'instance_state': 'No access'})
+
+
+@sio.on('CreateNewTemplate')
+def create_new_template(sid, data):
+    print()
+    data['sid'] = sid
+
+    for subserver_sid in subserver_list:
+        if data['uid'] in subserver_list[subserver_sid]['users_list']:  # find user subserver
+            sio.emit('CreateNewTemplate', data, room=subserver_sid)
+
+
+@sio.on('TemplateCreated')
+def template_created(sid, data):
+    subserver_list[sid] = data['server_data']
+    data.pop('server_data')
+    sid = data.pop('sid')
+    uid = data.pop('uid')
+    data.pop("_id")
+    data['date'] = datetime.now().strftime("%d.%m.%Y")
+    users.update_one({"uid": uid}, {"$push": {"templates": data}})
+    templates.insert_one(data)
+    sio.emit('TemplateCreated', data, room=sid)  # confirm socker from client
+
+
+@sio.on('InstallTemplate')
+def install_template(sid, data):
+    for subserver_sid in subserver_list:
+        if data['oldID'] in subserver_list[subserver_sid]['cont_list']:  # find user subserver
+            data['sid'] = sid
+            sio.emit('InstallTemplate', data, room=subserver_sid)
+
+
+@sio.on('TemplateInstalled')
+def template_installed(sid, data):
+    subserver_list[sid] = data['server_data']
+    user_sid = data.pop('user_sid')
+    sio.emit('TemplateInstalled', room=user_sid)
+
+
+@sio.on('RevertToInitial')
+def revert_to_initial(sid, data):
+    for subserver_sid in subserver_list:
+        if data in subserver_list[subserver_sid]['cont_list']:  # find user subserver
+            sio.emit('RevertToInitial', data, room=subserver_sid)
+
+
+@sio.on('DeleteTemplate')
+def delete_template(sid, data):
+    user = users.find_one({'uid': data['uid']})
+    instance_id = data['instanceID']
+
+    templates.delete_one({'instanceID': instance_id})
+
+    user['templates'].remove(next(item for item in user['templates'] if item["instanceID"] == instance_id))
+
+    for subserver_sid in subserver_list:
+        if data in subserver_list[subserver_sid]['cont_list']:  # find user subserver
+            sio.emit('DeleteTemplate', instance_id, room=subserver_sid)
+
+
+@sio.on('GetTemplates')
+def get_templates(sid, data):
+    all_templates = []
+
+    for template in templates.find():
+        template.pop('_id')
+        all_templates.append(template)
+
+    sio.emit('Templates', all_templates)
 
 
 @sio.on('RunGazebo')  # run gazebo socket
@@ -297,12 +308,7 @@ def terminal_connected(sid, data):
 def clover_telemetry(sid, data):
     if not math.isnan(data['position'][0]):  # check clover position
         user_sid = data.pop('sid')  # get user sid and delete from data dict
-        sio.emit('CloverPosition', data, room=user_sid)  # send clover pose to client
-
-
-@sio.on('LedState')
-def led_state(sid, data):
-    sio.emit('LedState', data['leds'], room=data['sid'])  # sed led state to client
+        sio.emit('CloverTelemetry', data, room=user_sid)  # send clover pose to client
 
 
 @sio.on('ExecuteCommand')  # execute command in terminal socket
@@ -386,7 +392,7 @@ def write_file(sid, data):
 
 @sio.on('StopGazebo')  # stop gazebo
 def stop_gazebo(sid, data):
-    sio.emit('StopGazebo', sid, room=cont_server_list[data])
+    sio.emit('StopGazebo', sid, room=terminals_list[data])
 
 
 @sio.on('GazeboStopped')  # gazebo stop confirmation
@@ -396,7 +402,7 @@ def gazebo_stopped(sid, data):
 
 @sio.on('AddCube')  # add cube to gazbeo map
 def add_cube(sid, data):
-    sio.emit('AddCube', '1', room=cont_server_list[data])
+    sio.emit('AddCube', data['cubeID'], room=cont_server_list[data['instanceID']])
 
 
 @sio.on('EditCube')  # edit cube
@@ -410,6 +416,23 @@ def edit_marker(sid, data):
     print(data)
     instance_id = data.pop('instanceID')
     sio.emit('EditMarker', data, cont_server_list[instance_id])
+
+
+@sio.on('AddMarker')  # delete aruco marker
+def delete_marker(sid, data):
+    instance_id = data.pop('instanceID')
+    sio.emit('AddMarker', data, cont_server_list[instance_id])
+
+
+@sio.on('DeleteMarker')  # delete aruco marker
+def delete_marker(sid, data):
+    instance_id = data.pop('instanceID')
+    sio.emit('DeleteMarker', data, cont_server_list[instance_id])
+
+
+@sio.on('DeleteCube')  # delete aruco marker
+def delete_marker(sid, data):
+    sio.emit('DeleteCube', data['model_id'], cont_server_list[data['instanceID']])
 
 
 if __name__ == '__main__':
