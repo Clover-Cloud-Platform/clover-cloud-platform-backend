@@ -1,20 +1,13 @@
 #   import standard python libs
 import os
 import math
-import uuid
 import string
 import random
-import smtplib as smtp
 from datetime import datetime
 #   import libs
-import rsa
 import socketio
 import eventlet
-import requests
-#   from getpass4 import getpass
 from pymongo import MongoClient
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 
 
 sio = socketio.Server(cors_allowed_origins='*',
