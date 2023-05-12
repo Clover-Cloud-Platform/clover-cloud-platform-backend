@@ -20,18 +20,15 @@ mkdir default_models
 
 wget https://raw.githubusercontent.com/Clover-Cloud-Platform/clover-cloud-platform-backend/main/cont_server/cont_server.py
 
-wget https://raw.githubusercontent.com/Clover-Cloud-Platform/clover-cloud-platform-backend/main/cont_server/stream_led.py
-
 wget https://raw.githubusercontent.com/Clover-Cloud-Platform/clover-cloud-platform-backend/main/cont_server/stream_telemetry.py
 
 wget https://raw.githubusercontent.com/Clover-Cloud-Platform/clover-cloud-platform-backend/main/cont_server/terminal.js
 
 wget https://raw.githubusercontent.com/Astel-d/PngToSvgForCloverCloud/master/pngtosvg.py
 
-sed -i "s,your local adress,${adress}," cont_server.py
-sed -i "s,your local adress,${adress}," stream_led.py
-sed -i "s,your local adress,${adress}," stream_telemetry.py
-sed -i "s,yor local adress,${adress}," terminal.js
+sed -i "s,main_server_address,${adress}," cont_server.py
+sed -i "s,main_server_address,${adress}," stream_telemetry.py
+sed -i "s,main_server_address,${adress}," terminal.js
 
 cd default_models 
 mkdir default_cube
