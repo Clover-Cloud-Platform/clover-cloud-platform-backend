@@ -6,7 +6,7 @@ const Convert = require('ansi-to-html');
 const { exec } = require("child_process");
 
 // Connect to the main server
-const socket = io("http://10.143.7.57:8000");
+const socket = io("main_server_address");
 
 // Send a message about that this script is running
 socket.emit('TerminalConnected', os.hostname());
