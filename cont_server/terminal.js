@@ -5,11 +5,14 @@ const io = require("socket.io-client")
 const Convert = require('ansi-to-html');
 const { exec } = require("child_process");
 
+// Set hostname
+const hostname = os.hostname();
+
 // Connect to the main server
 const socket = io("main_server_address");
 
 // Send a message about that this script is running
-socket.emit('TerminalConnected', os.hostname());
+socket.emit('TerminalConnected', hostname);
 
 // Define shell for pty process
 const shell = 'bash';
@@ -49,7 +52,7 @@ socket.on('RunGazebo', ()=>{
     gazeboProcess.write('Xvfb :1 &\r');
     gazeboProcess.write('export DISPLAY=:1\r');
     // Run Gazebo
-    gazeboProcess.write(`/bin/bash -c 'source /home/ubuntu/catkin_ws/devel/setup.bash; roslaunch clover_simulation simulator.launch'\r`);
+    gazeboProcess.write(`/bin/bash -c 'source /home/${hostname}/catkin_ws/devel/setup.bash; roslaunch clover_simulation simulator.launch'\r`);
 });
 // Listen to command for stopping Gazebo
 socket.on('StopGazebo', sid => {
@@ -74,7 +77,7 @@ socket.on('StartStreamTelemetry', uid => {
             // Gazebo is running
             checkGazeboProcess.kill();
             // Start streams
-            streamTelemetryProcess.write(`/usr/bin/python3.8 /home/ubuntu/PngToSvg/stream_telemetry.py ${uid}\r`);
+            streamTelemetryProcess.write(`/usr/bin/python3.8 /home/${hostname}/CloverCloudPlatform/stream_telemetry.py ${uid}\r`);
         }
     });
 });
