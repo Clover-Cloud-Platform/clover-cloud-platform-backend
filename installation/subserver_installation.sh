@@ -7,6 +7,7 @@ cd CloverCloudSubserver
 
 pip3 install pylxd
 pip3 install python-socketio
+pip install "python-socketio[client]"
 
 wget https://raw.githubusercontent.com/Clover-Cloud-Platform/clover-cloud-platform-backend/main/subserver/subserver.py
 
