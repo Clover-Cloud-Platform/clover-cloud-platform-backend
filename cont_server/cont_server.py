@@ -1,3 +1,4 @@
+# import libs
 import re
 import os
 import base64
@@ -9,18 +10,21 @@ import xml.etree.ElementTree as ET
 import socketio
 
 sio = socketio.Client()
-sio.connect('main_server_address')
+sio.connect('http://10.143.7.57:8000')  # Connect to socket.io server
 
-cont_code = subprocess.run("hostname", shell=True, stdout=subprocess.PIPE, text=True).stdout.replace("\n", '')
-sio.emit('ContConnected', cont_code)
+# Get the instance name by running the "hostname" command
+instance_name = subprocess.run("hostname", shell=True, stdout=subprocess.PIPE, text=True).stdout.replace("\n", '')
 
-with open("/home/ubuntu/CloverCloudPlatform/user_objects.json", "r") as read_file:
+# Emit an event to the server to indicate the connection of the controller
+sio.emit('ContConnected', instance_name)
+
+# Read user objects from a JSON file
+with open(f"/home/{instance_name}/CloverCloudPlatform/user_objects.json", "r") as read_file:
     user_objects = json.load(read_file)
 
 
 @sio.on('GetGazeboState')
 def get_gazebo_state(data):
-    sio.emit("DebugOutput", data)
     gazebo_state = subprocess.run('ps -A | grep roslaunch', shell=True, stdout=subprocess.PIPE, text=True).stdout
     if gazebo_state != '':
         sio.emit("GazeboStateRes", {'gazebo_state': True, 'user_sid': data['user_sid'], 'cont_code': data['cont_code']})
@@ -31,11 +35,12 @@ def get_gazebo_state(data):
 
 @sio.on('GetFiles')
 def get_files(data):
+    # Function to recursively get the directory structure
     def get_directory_structure(rootdir):
         dir = {
             'type': 'folder',
             'name': os.path.basename(rootdir),
-            'path': rootdir.replace('/home/ubuntu', ''),
+            'path': rootdir.replace(f'/home/{instance_name}', ''),
             'children': [],
         }
         items = os.listdir(rootdir)
@@ -47,213 +52,235 @@ def get_files(data):
                 dir['children'].append({
                     'type': 'file',
                     'name': item,
-                    'path': item_path.replace('/home/ubuntu', ''),
+                    'path': item_path.replace(f'/home/{instance_name}', ''),
                 })
         return dir
 
-    result = [get_directory_structure(rootdir='/home/ubuntu/FILES')]
+    result = [get_directory_structure(rootdir=f'/home/{instance_name}/FILES')]
     sio.emit('Files', {'user_sid': data, 'files': result})
 
 
 @sio.on('MoveItem')
 def move_item(data):
-    shutil.move('/home/ubuntu/' + data['source'], '/home/ubuntu/' + data['target'])
+    shutil.move(f'/home/{instance_name}/' + data['source'], f'/home/{instance_name}/' + data['target'])
 
 
 @sio.on('EditName')
 def edit_file_name(data):
-    old_file_name = os.path.basename('/home/ubuntu/' + data['path'])
-    new_file_path = '/home/ubuntu/' + data['path'].replace(old_file_name, data['newName'])
-    os.rename('/home/ubuntu/' + data['path'], new_file_path)
+    old_file_name = os.path.basename(f'/home/{instance_name}/' + data['path'])
+    new_file_path = f'/home/{instance_name}/' + data['path'].replace(old_file_name, data['newName'])
+    os.rename(f'/home/{instance_name}/' + data['path'], new_file_path)
 
 
 @sio.on('CreateNewFile')
 def create_new_file(data):
-    open('/home/ubuntu/' + data, 'w+')
+    open(f'/home/{instance_name}/' + data, 'w+')
 
 
 @sio.on('CreateNewDirectory')
 def create_new_directory(data):
-    os.mkdir('/home/ubuntu/' + data)
+    os.mkdir(f'/home/{instance_name}/' + data)  # Creates a new directory in the specified path
 
 
 @sio.on('DeleteFile')
 def delete_file(data):
-    os.remove('/home/ubuntu/' + data)
+    os.remove(f'/home/{instance_name}/' + data)  # Deletes the specified file
 
 
 @sio.on('DeleteDirectory')
 def delete_file(data):
-    shutil.rmtree('/home/ubuntu/' + str(data))
+    shutil.rmtree(f'/home/{instance_name}u/' + str(data))  # Deletes the specified directory and its contents
 
 
 @sio.on('GetFileContent')
 def get_file_content(data):
-    file = open("/home/ubuntu/" + data['path'], 'r')
-    file_content = file.read()
-    sio.emit('FileContent', {'content': file_content, 'path': data['path'], 'user_sid': data['user_sid']})
+    file = open(f"/home/{instance_name}/" + data['path'], 'r')  # Opens the specified file in read mode
+    file_content = file.read()  # Reads the content of the file
+    sio.emit('FileContent', {'content': file_content, 'path': data['path'], 'user_sid': data['user_sid']})  # Sends the file content to the client
 
 
 @sio.on('WriteFile')
 def write_file(data):
-    file = open("/home/ubuntu/" + data['path'], 'w')
-    file.write(data['value'])
-    file.close()
+    file = open(f"/home/{instance_name}/" + data['path'], 'w')  # Opens the specified file in write mode
+    file.write(data['value'])  # Writes the provided value to the file
+    file.close()  # Closes the file
 
 
 @sio.on('EditMarker')
 def edit_marker(data):
-    print('Marker', data)
-    line_number = 0
-    aruco_id = re.findall(r'\d+', data["aruco_name"])[1]
+    print('Marker', data)  # Prints the marker data
+    line_number = 0  # Counter for line number
+    aruco_id = re.findall(r'\d+', data["aruco_name"])[1]  # Extracts the aruco_id from the marker name
 
-    with open(r'/home/ubuntu/catkin_ws/src/clover/aruco_pose/map/cmit.txt', 'r') as map_txt:
-        lines = map_txt.readlines()
+    with open(fr'/home/{instance_name}/catkin_ws/src/clover/aruco_pose/map/cmit.txt', 'r') as map_txt:
+        lines = map_txt.readlines()  # Reads all lines from the file
         for line in lines:
-            if line.split('\t')[0] == aruco_id:
+            if line.split('\t')[0] == aruco_id:  # Checks if the line starts with the aruco_id
                 break
-            line_number += 1
+            line_number += 1  # Increments the line number
 
-    if data['image'] is not None:
-        print(data['aruco_name'].replace("aruco_marker_", ""))
-        with open(fr'/home/ubuntu/.gazebo/models/aruco_cmit_txt/materials/textures/'
+    if data['image'] is not None:  # Checks if image data is provided
+        print(data['aruco_name'].replace("aruco_marker_", ""))  # Prints the aruco name without the prefix
+        with open(fr'/home/{instance_name}/.gazebo/models/aruco_cmit_txt/materials/textures/'
                   fr'{data["aruco_name"].replace("aruco_marker_", "")}.png', 'wb') as img:
             image_encode = bytes(data['image'], 'UTF-8')
-            img.write(base64.decodebytes(image_encode))
-        user_objects["pictures"].append(data["aruco_name"])
+            img.write(base64.decodebytes(image_encode))  # Decodes and writes the image data to a file
+        user_objects["pictures"].append(data["aruco_name"])  # Adds the aruco_name to user_objects["pictures"]
 
-    if data['size'] is not None:
-        with open(r'/home/ubuntu/catkin_ws/src/clover/aruco_pose/map/cmit.txt', 'r') as map_txt:
-            lines = map_txt.readlines()
-            line = lines[line_number].split('\t')
-            line[1] = str(data['size'])
-            lines[line_number] = '\t'.join(line)
+    if data['size'] is not None:  # Checks if size data is provided
+        with open(fr'/home/{instance_name}/catkin_ws/src/clover/aruco_pose/map/cmit.txt', 'r') as map_txt:
+            lines = map_txt.readlines()  # Reads all lines from the file
+            line = lines[line_number].split('\t')  # Retrieves the line corresponding to the aruco_id
+            line[1] = str(data['size'])  # Updates the size in the line
+            lines[line_number] = '\t'.join(line)  # Joins the line elements with tab delimiter
 
-        with open(r'/home/ubuntu/catkin_ws/src/clover/aruco_pose/map/cmit.txt', 'w') as map_txt:
+        # Update the 'cmit.txt' file with the given lines
+        with open(fr'/home/{instance_name}/catkin_ws/src/clover/aruco_pose/map/cmit.txt', 'w') as map_txt:
             map_txt.writelines(lines)
             map_txt.close()
 
-    if data['position'] is not None:
-        with open(r'/home/ubuntu/catkin_ws/src/clover/aruco_pose/map/cmit.txt', 'r') as map_txt:
-            lines = map_txt.readlines()
-            line = lines[line_number].split('\t')
-            line[2], line[3] = str(data['position'][0]), str(data['position'][1])
-            lines[line_number] = '\t'.join(line)
+        # Update position if available
+        if data['position'] is not None:
+            # Read the 'cmit.txt' file
+            with open(fr'/home/{instance_name}/catkin_ws/src/clover/aruco_pose/map/cmit.txt', 'r') as map_txt:
+                lines = map_txt.readlines()
+                line = lines[line_number].split('\t')
+                line[2], line[3] = str(data['position'][0]), str(data['position'][1])
+                lines[line_number] = '\t'.join(line)
 
-        with open(r'/home/ubuntu/catkin_ws/src/clover/aruco_pose/map/cmit.txt', 'w') as map_txt:
-            map_txt.writelines(lines)
-            map_txt.close()
+            # Write the updated lines back to the 'cmit.txt' file
+            with open(fr'/home/{instance_name}/catkin_ws/src/clover/aruco_pose/map/cmit.txt', 'w') as map_txt:
+                map_txt.writelines(lines)
+                map_txt.close()
 
-    if data['marker_id'] is not None:
+        # Update marker ID if available
+        if data['marker_id'] is not None:
+            # Read the 'cmit.txt' file
+            with open(fr'/home/{instance_name}/catkin_ws/src/clover/aruco_pose/map/cmit.txt', 'r') as map_txt:
+                lines = map_txt.readlines()
+                line = lines[line_number].split('\t')
+                line[0] = str(data['marker_id'])
+                lines[line_number] = '\t'.join(line)
 
-        with open(r'/home/ubuntu/catkin_ws/src/clover/aruco_pose/map/cmit.txt', 'r') as map_txt:
-            lines = map_txt.readlines()
-            line = lines[line_number].split('\t')
-            line[0] = str(data['marker_id'])
-            lines[line_number] = '\t'.join(line)
+            # Write the updated lines back to the 'cmit.txt' file
+            with open(fr'/home/{instance_name}/catkin_ws/src/clover/aruco_pose/map/cmit.txt', 'w') as map_txt:
+                map_txt.writelines(lines)
+                map_txt.close()
 
-        with open(r'/home/ubuntu/catkin_ws/src/clover/aruco_pose/map/cmit.txt', 'w') as map_txt:
-            map_txt.writelines(lines)
-            map_txt.close()
+            # Rename the corresponding image file
+            os.rename(
+                fr'/home/{instance_name}/.gazebo/models/aruco_cmit_txt/materials/textures/{data["aruco_name"]}.png',
+                fr'/home/{instance_name}/.gazebo/models/aruco_cmit_txt/materials/textures/'
+                fr'{data["aruco_name"].replace(aruco_id, data["marker_id"])}.png'
+            )
 
-        os.rename(fr'/home/ubuntu/.gazebo/models/aruco_cmit_txt/materials/textures/{data["aruco_name"]}.png',
+            # Remove the old image file if it exists in the user_objects dictionary
+            if data["aruco_name"] in user_objects['pictures']:
+                user_objects['pictures'].remove(data["aruco_name"])
+                os.remove(
+                    fr'/home/{instance_name}/.gazebo/models/aruco_cmit_txt/materials/textures/'
+                    fr'{data["aruco_name"].replace("aruco_marker_", "")}.png'
+                )
 
-                  fr'/home/ubuntu/.gazebo/models/aruco_cmit_txt/materials/textures/'
-                  fr'{data["aruco_name"].replace(aruco_id, data["marker_id"])}.png')
-
-        if data["aruco_name"] in user_objects['pictures']:
-            user_objects['pictures'].remove(data["aruco_name"])
-            os.remove(fr'/home/ubuntu/.gazebo/models/aruco_cmit_txt/materials/textures/'
-                      fr'{data["aruco_name"].replace("aruco_marker_", "")}.png')
-
-    subprocess.run(""
-                   "/bin/bash -c 'source /home/ubuntu/catkin_ws/devel/setup.bash; "
-                   "rosrun clover_simulation aruco_gen --single-model "
-                   "--source-world='/home/ubuntu/catkin_ws/src/clover/clover_simulation/resources/worlds/clover"
-                   ".world' '/home/ubuntu/catkin_ws/src/clover/aruco_pose/map/cmit.txt' > "
-                   "'/home/ubuntu/catkin_ws/src/clover/clover_simulation/resources/worlds/clover_aruco.world''",
-                   shell=True)
-
-    with open("/home/ubuntu/CloverCloudPlatform/user_objects.json", "w") as write_file:
-        json.dump(user_objects, write_file)
-
-    for marker in user_objects['pictures']:
-        shutil.copyfile(
-            f'/home/ubuntu/.gazebo/models/aruco_cmit_txt/materials/textures/'
-            f'{marker.replace("aruco_marker_", "")}.png',
-
-            f'/home/ubuntu/.gazebo/models/aruco_cmit_txt/materials/textures/'
-            f'{marker}.png'
+        # Run a subprocess to generate aruco markers
+        subprocess.run(
+            fr"/bin/bash -c 'source /home/{instance_name}/catkin_ws/devel/setup.bash; "
+            fr"rosrun clover_simulation aruco_gen --single-model "
+            fr"--source-world='/home/{instance_name}/catkin_ws/src/clover/clover_simulation/resources/worlds/clover"
+            fr".world' '/home/{instance_name}/catkin_ws/src/clover/aruco_pose/map/cmit.txt' > "
+            fr"'/home/{instance_name}/catkin_ws/src/clover/clover_simulation/resources/worlds/clover_aruco.world''",
+            shell=True
         )
+
+        # Write the updated user_objects dictionary to a JSON file
+        with open(fr"/home/{instance_name}/CloverCloudPlatform/user_objects.json", "w") as write_file:
+            json.dump(user_objects, write_file)
+
+        # Copy image files from one directory to another based on user_objects['pictures']
+        for marker in user_objects['pictures']:
+            shutil.copyfile(
+                fr'/home/{instance_name}/.gazebo/models/aruco_cmit_txt/materials/textures/'
+                f'{marker.replace("aruco_marker_", "")}.png',
+                fr'/home/{instance_name}/.gazebo/models/aruco_cmit_txt/materials/textures/'
+                f'{marker}.png'
+            )
 
 
 @sio.on('AddMarker')
 def add_marker(data):
+    # Extract the aruco ID from the marker name
     aruco_id = re.findall(r'\d+', data["name"])[1]
 
-    with open(r'/home/ubuntu/catkin_ws/src/clover/aruco_pose/map/cmit.txt', 'a') as map_txt:
-        map_txt.write(f'\n{aruco_id}	0.33	0.0	-1.0	0	0	0	0')
+    # Append the marker information to the "cmit.txt" file
+    with open(fr'/home/{instance_name}/catkin_ws/src/clover/aruco_pose/map/cmit.txt', 'a') as map_txt:
+        map_txt.write(f'\n{aruco_id}  0.33  0.0  -1.0  0  0  0  0')
 
-    subprocess.run(""
-                   "/bin/bash -c 'source /home/ubuntu/catkin_ws/devel/setup.bash; "
-                   "rosrun clover_simulation aruco_gen --single-model "
-                   "--source-world='/home/ubuntu/catkin_ws/src/clover/clover_simulation/resources/worlds/clover"
-                   ".world' '/home/ubuntu/catkin_ws/src/clover/aruco_pose/map/cmit.txt' > "
-                   "'/home/ubuntu/catkin_ws/src/clover/clover_simulation/resources/worlds/clover_aruco.world''",
+    # Generate the aruco markers in the simulation world
+    subprocess.run(fr""
+                   fr"/bin/bash -c 'source /home/{instance_name}/catkin_ws/devel/setup.bash; "
+                   fr"rosrun clover_simulation aruco_gen --single-model "
+                   fr"--source-world='/home/{instance_name}/catkin_ws/src/clover/clover_simulation/resources/worlds/clover"
+                   fr".world' '/home/{instance_name}/catkin_ws/src/clover/aruco_pose/map/cmit.txt' > "
+                   fr"'/home/{instance_name}/catkin_ws/src/clover/clover_simulation/resources/worlds/clover_aruco.world''",
                    shell=True)
 
 
 @sio.on('DeleteMarker')
 def delete_marker(data):
     x = 0
+    # Extract the aruco ID from the marker name
     aruco_id = re.findall(r'\d+', data["name"])[1]
 
-    with open(r'/home/ubuntu/catkin_ws/src/clover/aruco_pose/map/cmit.txt', 'r') as map_txt:
+    # Remove the corresponding marker from the "cmit.txt" file
+    with open(fr'/home/{instance_name}u/catkin_ws/src/clover/aruco_pose/map/cmit.txt', 'r') as map_txt:
         lines = map_txt.readlines()
         for line in lines:
             if line.split('\t')[0] == aruco_id:
                 lines.pop(x)
             x += 1
 
-    with open(r'/home/ubuntu/catkin_ws/src/clover/aruco_pose/map/cmit.txt', 'w') as map_txt:
+    with open(fr'/home/{instance_name}/catkin_ws/src/clover/aruco_pose/map/cmit.txt', 'w') as map_txt:
         map_txt.writelines(lines)
         map_txt.close()
 
+    # Remove the marker image file and update the user_objects.json file
     if data["name"] in user_objects['pictures']:
         user_objects['pictures'].remove(data['name'])
-
-        os.remove(fr'/home/ubuntu/.gazebo/models/aruco_cmit_txt/materials/textures/'
+        os.remove(fr'/home/{instance_name}/.gazebo/models/aruco_cmit_txt/materials/textures/'
                   fr'{data["name"].replace("aruco_marker_", "")}.png')
-
-        with open("/home/ubuntu/CloverCloudPlatform/user_objects.json", "w") as write_file:
+        with open(fr"/home/{instance_name}/CloverCloudPlatform/user_objects.json", "w") as write_file:
             json.dump(user_objects, write_file)
 
-    subprocess.run(""
-                   "/bin/bash -c 'source /home/ubuntu/catkin_ws/devel/setup.bash; "
-                   "rosrun clover_simulation aruco_gen --single-model "
-                   "--source-world='/home/ubuntu/catkin_ws/src/clover/clover_simulation/resources/worlds/clover"
-                   ".world' '/home/ubuntu/catkin_ws/src/clover/aruco_pose/map/cmit.txt' > "
-                   "'/home/ubuntu/catkin_ws/src/clover/clover_simulation/resources/worlds/clover_aruco.world''",
+    # Regenerate the aruco markers in the simulation world
+    subprocess.run(fr""
+                   fr"/bin/bash -c 'source /home/{instance_name}/catkin_ws/devel/setup.bash; "
+                   fr"rosrun clover_simulation aruco_gen --single-model "
+                   fr"--source-world='/home/{instance_name}/catkin_ws/src/clover/clover_simulation/resources/worlds/clover"
+                   fr".world' '/home/{instance_name}/catkin_ws/src/clover/aruco_pose/map/cmit.txt' > "
+                   fr"'/home/{instance_name}/catkin_ws/src/clover/clover_simulation/resources/worlds/clover_aruco.world''",
                    shell=True)
 
 
 @sio.on('AddCube')
 def add_cube(data):
     dir_name = data
-    os.mkdir(fr'/home/ubuntu/catkin_ws/src/clover/clover_simulation/models/{dir_name}')
-    path_to_sdf = fr'/home/ubuntu/catkin_ws/src/clover/clover_simulation/models/{dir_name}/model.sdf'
-    path_to_config = fr'/home/ubuntu/catkin_ws/src/clover/clover_simulation/models/{dir_name}/model.config'
+    # Create a directory for the cube model
+    os.mkdir(fr'/home/{instance_name}/catkin_ws/src/clover/clover_simulation/models/{dir_name}')
+    path_to_sdf = fr'/home/{instance_name}/catkin_ws/src/clover/clover_simulation/models/{dir_name}/model.sdf'
+    path_to_config = fr'/home/{instance_name}/catkin_ws/src/clover/clover_simulation/models/{dir_name}/model.config'
 
-    shutil.copyfile(r'/home/ubuntu/CloverCloudPlatform/default_models/default_cube/model.sdf',
+    # Copy the default cube model files to the new directory
+    shutil.copyfile(fr'/home/{instance_name}/CloverCloudPlatform/default_models/default_cube/model.sdf',
                     path_to_sdf)
-
-    shutil.copyfile(r'/home/ubuntu/CloverCloudPlatform/default_models/default_cube/model.config',
+    shutil.copyfile(fr'/home/{instance_name}/CloverCloudPlatform/default_models/default_cube/model.config',
                     path_to_config)
 
+    # Add the cube model information to user_objects.json
     user_objects['models'].append(
         {'cubeID': dir_name, 'size': [1, 1, 1], 'position': [0, 1, 0.5], 'rotation': [0, 0, 0], 'color': 'Gray', 'colorHex': '#838383'}
     )
 
+    # Update the name of the cube in the SDF and config files
     sdf_tree = ET.parse(path_to_sdf)
     sdf_root = sdf_tree.getroot()
     for type_tag in sdf_root.findall('.//model'):
@@ -266,7 +293,8 @@ def add_cube(data):
         type_tag.text = dir_name
     config_tree.write(path_to_config)
 
-    world_tree = ET.parse(r'/home/ubuntu/catkin_ws/src/clover/clover_simulation/resources/worlds/clover_aruco.world')
+    # Update the simulation world file to include the new cube model
+    world_tree = ET.parse(fr'/home/{instance_name}/catkin_ws/src/clover/clover_simulation/resources/worlds/clover_aruco.world')
     world_root = world_tree.getroot()
 
     new_include = ET.Element('include')
@@ -278,18 +306,19 @@ def add_cube(data):
     world = world_root.find('world')
     world.append(new_include)
 
-    world_tree.write(r'/home/ubuntu/catkin_ws/src/clover/clover_simulation/resources/worlds/clover_aruco.world')
-    world_tree.write(r'/home/ubuntu/catkin_ws/src/clover/clover_simulation/resources/worlds/clover.world')
+    world_tree.write(fr'/home/{instance_name}/catkin_ws/src/clover/clover_simulation/resources/worlds/clover_aruco.world')
+    world_tree.write(fr'/home/{instance_name}/catkin_ws/src/clover/clover_simulation/resources/worlds/clover.world')
 
-    with open("/home/ubuntu/CloverCloudPlatform/user_objects.json", "w") as write_file:
+    # Update the user_objects.json file
+    with open(f"/home/{instance_name}/CloverCloudPlatform/user_objects.json", "w") as write_file:
         json.dump(user_objects, write_file)
 
 
 @sio.on('EditCube')
 def edit_cube(data):
-    print(data)
     if data['position'] is not None:
-        tree = ET.parse(r'/home/ubuntu/catkin_ws/src/clover/clover_simulation/resources/worlds/clover_aruco.world')
+        # Edit the position and rotation of the cube in the simulation world
+        tree = ET.parse(fr'/home/{instance_name}/catkin_ws/src/clover/clover_simulation/resources/worlds/clover_aruco.world')
         root = tree.getroot()
 
         for include in root.findall('.//include'):
@@ -297,65 +326,61 @@ def edit_cube(data):
                 include.find('.//pose').text = f'{data["position"][0]} {data["position"][1]} {data["position"][2]} ' \
                                                f'{data["rotation"][0]} {data["rotation"][1]} {data["rotation"][2]}'
                 break
-        tree.write(r'/home/ubuntu/catkin_ws/src/clover/clover_simulation/resources/worlds/clover_aruco.world')
-        tree.write(r'/home/ubuntu/catkin_ws/src/clover/clover_simulation/resources/worlds/clover.world')
+        tree.write(fr'/home/{instance_name}/catkin_ws/src/clover/clover_simulation/resources/worlds/clover_aruco.world')
+        tree.write(fr'/home/{instance_name}/catkin_ws/src/clover/clover_simulation/resources/worlds/clover.world')
 
-        next(item for item in user_objects['models'] if item["cubeID"] == data['model_id'])['position'] \
-            = data['position']
-
-        next(item for item in user_objects['models'] if item["cubeID"] == data['model_id'])['rotation'] \
-            = data['rotation']
+        # Update the position and rotation of the cube in user_objects.json
+        next(item for item in user_objects['models'] if item["cubeID"] == data['model_id'])['position'] = data['position']
+        next(item for item in user_objects['models'] if item["cubeID"] == data['model_id'])['rotation'] = data['rotation']
 
     if data['size'] is not None:
-        print('scale')
-        tree = ET.parse(fr'/home/ubuntu/catkin_ws/src/clover/clover_simulation/models/{data["model_id"]}/model.sdf')
+        # Edit the size of the cube model
+        tree = ET.parse(fr'/home/{instance_name}/catkin_ws/src/clover/clover_simulation/models/{data["model_id"]}/model.sdf')
         root = tree.getroot()
-        print('ok')
 
         for type_tag in root.findall('.//size'):
-            print(data['size'])
-            print(type_tag.text)
             type_tag.text = ' '.join(map(str, data['size']))
 
-        tree.write(fr'/home/ubuntu/catkin_ws/src/clover/clover_simulation/models/{data["model_id"]}/model.sdf')
+        tree.write(fr'/home/{instance_name}/catkin_ws/src/clover/clover_simulation/models/{data["model_id"]}/model.sdf')
 
-        next(item for item in user_objects['models'] if item["cubeID"] == data['model_id'])['size'] \
-            = data['size']
+        # Update the size of the cube in user_objects.json
+        next(item for item in user_objects['models'] if item["cubeID"] == data['model_id'])['size'] = data['size']
 
     if data['color'] is not None:
-        tree = ET.parse(fr'/home/ubuntu/catkin_ws/src/clover/clover_simulation/models/{data["model_id"]}/model.sdf')
+        # Edit the color of the cube model
+        tree = ET.parse(fr'/home/{instance_name}/catkin_ws/src/clover/clover_simulation/models/{data["model_id"]}/model.sdf')
         root = tree.getroot()
 
         for type_tag in root.findall('.//name'):
             type_tag.text = 'Gazebo/' + data['color']
 
-        tree.write(fr'/home/ubuntu/catkin_ws/src/clover/clover_simulation/models/{data["model_id"]}/model.sdf')
+        tree.write(fr'/home/{instance_name}/catkin_ws/src/clover/clover_simulation/models/{data["model_id"]}/model.sdf')
 
-        next(item for item in user_objects['models'] if item["cubeID"] == data['model_id'])['color'] \
-            = data['color']
+        # Update the color and colorHex of the cube in user_objects.json
+        next(item for item in user_objects['models'] if item["cubeID"] == data['model_id'])['color'] = data['color']
+        next(item for item in user_objects['models'] if item["cubeID"] == data['model_id'])['colorHex'] = data['colorHex']
 
-        next(item for item in user_objects['models'] if item["cubeID"] == data['model_id'])['colorHex'] \
-            = data['colorHex']
-
-    with open("/home/ubuntu/CloverCloudPlatform/user_objects.json", "w") as write_file:
+    # Update the user_objects.json file
+    with open(fr"/home/{instance_name}/CloverCloudPlatform/user_objects.json", "w") as write_file:
         json.dump(user_objects, write_file)
 
 
 @sio.on('DeleteCube')
 def delete_cube(data):
-    shutil.rmtree(fr'/home/ubuntu/catkin_ws/src/clover/clover_simulation/models/{data}')
-    world_tree = ET.parse(r'/home/ubuntu/catkin_ws/src/clover/clover_simulation/resources/worlds/clover_aruco.world')
+    # Delete the cube model directory
+    shutil.rmtree(fr'/home/{instance_name}/catkin_ws/src/clover/clover_simulation/models/{data}')
+    world_tree = ET.parse(fr'/home/{instance_name}/catkin_ws/src/clover/clover_simulation/resources/worlds/clover_aruco.world')
     world_root = world_tree.getroot()
 
+    # Remove the cube model from the simulation world
     for elem in world_root.findall(fr'.//include[uri="{data}"]'):
         world_root.remove(elem)
 
-    world_tree.write(r'/home/ubuntu/catkin_ws/src/clover/clover_simulation/resources/worlds/clover_aruco.world')
-    world_tree.write(r'/home/ubuntu/catkin_ws/src/clover/clover_simulation/resources/worlds/clover.world')
-
+    # Remove the deleted cube from user_objects.json
     next(item for item in user_objects['models'] if item["cubeID"] == data['model_id']).pop(int(data))
 
-    with open("/home/ubuntu/CloverCloudPlatform/user_objects.json", "w") as write_file:
+    # Write the updated user_objects.json file
+    with open("fr/home/{instance_name}/CloverCloudPlatform/user_objects.json", "w") as write_file:
         json.dump(user_objects, write_file)
 
 
@@ -368,15 +393,17 @@ def run_gazebo(data):
     aruco_map = []
     aruco_types = []
 
-    with open(r'/home/ubuntu/.gazebo/models/aruco_cmit_txt/aruco_model.sdf', 'r') as f:
+    # Read the aruco_model.sdf file to retrieve aruco poses
+    with open(fr'/home/{instance_name}u/.gazebo/models/aruco_cmit_txt/aruco_model.sdf', 'r') as f:
         f.readline()
         xml_string = f.read()
         root = ET.fromstring(xml_string)
 
+    # Retrieve aruco poses, sizes, names, and image types
     for type_tag in root.findall('.//pose'):
         aruco_poses.append(type_tag.text.split()[0:2])
 
-    with open(r'/home/ubuntu/catkin_ws/src/clover/aruco_pose/map/cmit.txt', 'r') as map_txt:
+    with open(fr'/home/{instance_name}/catkin_ws/src/clover/aruco_pose/map/cmit.txt', 'r') as map_txt:
         lines = map_txt.readlines()
         for line in range(len(lines)):
             if line != 17:
@@ -386,19 +413,23 @@ def run_gazebo(data):
 
     for type_tag in root.findall('.//name'):
         aruco_names.append(type_tag.text.replace("/", "_"))
-        aruco_name = f'/home/ubuntu/.gazebo/models/aruco_cmit_txt/materials/textures/' \
-                     f'{type_tag.text.replace("/", "_")}.png'
+        aruco_name = fr'/home/{instance_name}/.gazebo/models/aruco_cmit_txt/materials/textures/' \
+                     fr'{type_tag.text.replace("/", "_")}.png'
         if type_tag.text.replace("/", "_") not in user_objects['pictures']:
+            # Generate SVG image for aruco model
             svg_image = main(aruco_name)
             aruco_svg.append(svg_image)
             aruco_types.append('svg')
         else:
+            # Load PNG image for aruco model
             with open(aruco_name, 'rb') as img:
                 aruco_svg.append(str(base64.b64encode(img.read())))
                 aruco_types.append('png')
 
+    # Create the aruco_map with image, position, size, name, and type
     for index in range(len(aruco_poses)):
         aruco_map.append({'image': aruco_svg[index], 'position': aruco_poses[index], 'aruco_name': aruco_names[index],
                           'aruco_size': aruco_sizes[index], 'aruco_type': aruco_types[index]})
 
+    # Emit the GazeboModels event with aruco_map, user_objects, and user_sid
     sio.emit('GazeboModels', {'aruco_map': aruco_map, 'user_objects': user_objects['models'], 'user_sid': data})
