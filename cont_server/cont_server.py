@@ -4,6 +4,7 @@ import os
 import base64
 import json
 import shutil
+import getpass
 from pngtosvg import *
 import subprocess
 import xml.etree.ElementTree as ET
@@ -13,10 +14,11 @@ sio = socketio.Client()
 sio.connect('http://10.143.7.57:8000')  # Connect to socket.io server
 
 # Get the instance name by running the "hostname" command
-instance_name = subprocess.run("hostname", shell=True, stdout=subprocess.PIPE, text=True).stdout.replace("\n", '')
+user_name = subprocess.run("hostname", shell=True, stdout=subprocess.PIPE, text=True).stdout.replace("\n", '')
+instance_name = getpass.getuser()
 
 # Emit an event to the server to indicate the connection of the controller
-sio.emit('ContConnected', instance_name)
+sio.emit('ContConnected', user_name)
 
 # Read user objects from a JSON file
 with open(f"/home/{instance_name}/CloverCloudPlatform/user_objects.json", "r") as read_file:
@@ -89,7 +91,7 @@ def delete_file(data):
 
 @sio.on('DeleteDirectory')
 def delete_file(data):
-    shutil.rmtree(f'/home/{instance_name}u/' + str(data))  # Deletes the specified directory and its contents
+    shutil.rmtree(f'/home/{instance_name}/' + str(data))  # Deletes the specified directory and its contents
 
 
 @sio.on('GetFileContent')
@@ -108,7 +110,6 @@ def write_file(data):
 
 @sio.on('EditMarker')
 def edit_marker(data):
-    print('Marker', data)  # Prints the marker data
     line_number = 0  # Counter for line number
     aruco_id = re.findall(r'\d+', data["aruco_name"])[1]  # Extracts the aruco_id from the marker name
 
@@ -120,7 +121,6 @@ def edit_marker(data):
             line_number += 1  # Increments the line number
 
     if data['image'] is not None:  # Checks if image data is provided
-        print(data['aruco_name'].replace("aruco_marker_", ""))  # Prints the aruco name without the prefix
         with open(fr'/home/{instance_name}/.gazebo/models/aruco_cmit_txt/materials/textures/'
                   fr'{data["aruco_name"].replace("aruco_marker_", "")}.png', 'wb') as img:
             image_encode = bytes(data['image'], 'UTF-8')
@@ -232,7 +232,7 @@ def delete_marker(data):
     aruco_id = re.findall(r'\d+', data["name"])[1]
 
     # Remove the corresponding marker from the "cmit.txt" file
-    with open(fr'/home/{instance_name}u/catkin_ws/src/clover/aruco_pose/map/cmit.txt', 'r') as map_txt:
+    with open(fr'/home/{instance_name}/catkin_ws/src/clover/aruco_pose/map/cmit.txt', 'r') as map_txt:
         lines = map_txt.readlines()
         for line in lines:
             if line.split('\t')[0] == aruco_id:
@@ -369,18 +369,23 @@ def edit_cube(data):
 def delete_cube(data):
     # Delete the cube model directory
     shutil.rmtree(fr'/home/{instance_name}/catkin_ws/src/clover/clover_simulation/models/{data}')
-    world_tree = ET.parse(fr'/home/{instance_name}/catkin_ws/src/clover/clover_simulation/resources/worlds/clover_aruco.world')
-    world_root = world_tree.getroot()
+    tree = ET.parse(fr'/home/{instance_name}/catkin_ws/src/clover/clover_simulation/resources/worlds/clover_aruco.world')
+    world_root = tree.getroot()
 
     # Remove the cube model from the simulation world
-    for elem in world_root.findall(fr'.//include[uri="{data}"]'):
-        world_root.remove(elem)
+    for elem in world_root.findall('.//include'):
+        uri_elem = elem.find('uri')
+        if uri_elem is not None and data in str(uri_elem.text):
+            world_root.find('.//world').remove(elem)
+
+    tree.write(fr'/home/{instance_name}/catkin_ws/src/clover/clover_simulation/resources/worlds/clover_aruco.world')
+    tree.write(fr'/home/{instance_name}/catkin_ws/src/clover/clover_simulation/resources/worlds/clover.world')
 
     # Remove the deleted cube from user_objects.json
-    next(item for item in user_objects['models'] if item["cubeID"] == data['model_id']).pop(int(data))
+    user_objects["models"] = [item for item in user_objects["models"] if item["cubeID"] != data]
 
     # Write the updated user_objects.json file
-    with open("fr/home/{instance_name}/CloverCloudPlatform/user_objects.json", "w") as write_file:
+    with open(fr"/home/{instance_name}/CloverCloudPlatform/user_objects.json", "w") as write_file:
         json.dump(user_objects, write_file)
 
 
@@ -394,7 +399,7 @@ def run_gazebo(data):
     aruco_types = []
 
     # Read the aruco_model.sdf file to retrieve aruco poses
-    with open(fr'/home/{instance_name}u/.gazebo/models/aruco_cmit_txt/aruco_model.sdf', 'r') as f:
+    with open(fr'/home/{instance_name}/.gazebo/models/aruco_cmit_txt/aruco_model.sdf', 'r') as f:
         f.readline()
         xml_string = f.read()
         root = ET.fromstring(xml_string)
