@@ -13,7 +13,7 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
 sio = socketio.Client()
-sio.connect('http://10.143.7.57:8000')  # Connect to socket.io server
+sio.connect('main_server_address')  # Connect to socket.io server
 
 # Get the instance name by running the "hostname" command
 user_name = subprocess.run("hostname", shell=True, stdout=subprocess.PIPE, text=True).stdout.replace("\n", '')
