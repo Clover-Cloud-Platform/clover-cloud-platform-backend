@@ -28,6 +28,8 @@ wget https://raw.githubusercontent.com/Clover-Cloud-Platform/clover-cloud-platfo
 
 wget https://raw.githubusercontent.com/Astel-d/PngToSvgForCloverCloud/master/pngtosvg.py
 
+https://raw.githubusercontent.com/Clover-Cloud-Platform/clover-cloud-platform-backend/main/cont_server/user_objects.json
+
 sed -i "s,main_server_address,${adress}," cont_server.py
 sed -i "s,main_server_address,${adress}," stream_telemetry.py
 sed -i "s,main_server_address,${adress}," terminal.js
