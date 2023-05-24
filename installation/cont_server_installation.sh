@@ -8,6 +8,8 @@ pip3 install Pillow
 
 cd ~
 
+mkdir FILES
+
 mkdir CloverCloudPlatform
 
 cd CloverCloudPlatform
