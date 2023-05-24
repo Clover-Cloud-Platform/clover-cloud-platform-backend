@@ -14,7 +14,7 @@ mkdir CloverCloudPlatform
 
 cd CloverCloudPlatform
 
-npm i os node-pty socket.io-client ansi-to-html child_process -g
+npm i os node-pty socket.io-client ansi-to-html child_process
 
 mkdir cont_server
 mkdir user_objects
