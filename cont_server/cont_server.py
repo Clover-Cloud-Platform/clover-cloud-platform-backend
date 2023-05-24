@@ -9,6 +9,8 @@ from pngtosvg import *
 import subprocess
 import xml.etree.ElementTree as ET
 import socketio
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
 
 sio = socketio.Client()
 sio.connect('http://10.143.7.57:8000')  # Connect to socket.io server
@@ -16,6 +18,7 @@ sio.connect('http://10.143.7.57:8000')  # Connect to socket.io server
 # Get the instance name by running the "hostname" command
 user_name = subprocess.run("hostname", shell=True, stdout=subprocess.PIPE, text=True).stdout.replace("\n", '')
 instance_name = getpass.getuser()
+user_sid = None
 
 # Emit an event to the server to indicate the connection of the controller
 sio.emit('ContConnected', user_name)
@@ -23,6 +26,27 @@ sio.emit('ContConnected', user_name)
 # Read user objects from a JSON file
 with open(f"/home/{instance_name}/CloverCloudPlatform/user_objects.json", "r") as read_file:
     user_objects = json.load(read_file)
+
+
+def get_directory_structure(rootdir):
+    dir = {
+        'type': 'folder',
+        'name': os.path.basename(rootdir),
+        'path': rootdir.replace(f'/home/{instance_name}', ''),
+        'children': [],
+    }
+    items = os.listdir(rootdir)
+    for item in items:
+        item_path = os.path.join(rootdir, item)
+        if os.path.isdir(item_path):
+            dir['children'].append(get_directory_structure(item_path))
+        else:
+            dir['children'].append({
+                'type': 'file',
+                'name': item,
+                'path': item_path.replace(f'/home/{instance_name}', ''),
+            })
+    return dir
 
 
 @sio.on('GetGazeboState')
@@ -38,28 +62,11 @@ def get_gazebo_state(data):
 @sio.on('GetFiles')
 def get_files(data):
     # Function to recursively get the directory structure
-    def get_directory_structure(rootdir):
-        dir = {
-            'type': 'folder',
-            'name': os.path.basename(rootdir),
-            'path': rootdir.replace(f'/home/{instance_name}', ''),
-            'children': [],
-        }
-        items = os.listdir(rootdir)
-        for item in items:
-            item_path = os.path.join(rootdir, item)
-            if os.path.isdir(item_path):
-                dir['children'].append(get_directory_structure(item_path))
-            else:
-                dir['children'].append({
-                    'type': 'file',
-                    'name': item,
-                    'path': item_path.replace(f'/home/{instance_name}', ''),
-                })
-        return dir
-
+    global user_sid
+    if user_sid != data:
+        user_sid = data
     result = [get_directory_structure(rootdir=f'/home/{instance_name}/FILES')]
-    sio.emit('Files', {'user_sid': data, 'files': result})
+    sio.emit('Files', {'user_sid': user_sid, 'files': result})
 
 
 @sio.on('MoveItem')
@@ -96,9 +103,13 @@ def delete_file(data):
 
 @sio.on('GetFileContent')
 def get_file_content(data):
-    file = open(f"/home/{instance_name}/" + data['path'], 'r')  # Opens the specified file in read mode
-    file_content = file.read()  # Reads the content of the file
-    sio.emit('FileContent', {'content': file_content, 'path': data['path'], 'user_sid': data['user_sid']})  # Sends the file content to the client
+    try:
+        file = open(f"/home/{instance_name}/" + data['path'], 'r')  # Opens the specified file in read mode
+        file_content = file.read()  # Reads the content of the file
+        sio.emit('FileContent', {'content': file_content, 'path': data['path'], 'user_sid': data['user_sid']})  # Send the file content to the client
+    except Exception as E:
+        sio.emit('FileContent', {'content': None, 'path': data['path'],
+                                 'user_sid': data['user_sid']})  # Send the file content to the client if file not found
 
 
 @sio.on('WriteFile')
@@ -106,6 +117,27 @@ def write_file(data):
     file = open(f"/home/{instance_name}/" + data['path'], 'w')  # Opens the specified file in write mode
     file.write(data['value'])  # Writes the provided value to the file
     file.close()  # Closes the file
+
+
+@sio.on('ReadImage')
+def read_image(data):
+    if data['type'] == 'svg':
+        svg = open(f"/home/{instance_name}/" + data['path'], 'r')  # Opens the specified file in read mode
+        svg_content = svg.read()  # Reads the content of the file
+        sio.emit('ImageData', {'content': svg_content,
+                               'user_sid': data['user_sid'], 'type': data['type']})  # Send the file content to the client
+
+    else:
+        with open(f"/home/{instance_name}/" + data['path'], 'rb') as img:
+            base64_img = base64.b64encode(img.read()).decode('utf-8')
+            file_name, file_extension = os.path.splitext(f"/home/{instance_name}/" + data['path'])
+            if file_extension.replace('.', '') == 'jpg':
+                file_extension = 'jpeg'
+            else:
+                file_extension = 'png'
+
+            sio.emit('ImageData', {'content': f'data:image/{file_extension};base64, {base64_img}',
+                                   'user_sid': data['user_sid'], 'type': data['type']})  # Send the file content to the client
 
 
 @sio.on('EditMarker')
@@ -438,3 +470,16 @@ def run_gazebo(data):
 
     # Emit the GazeboModels event with aruco_map, user_objects, and user_sid
     sio.emit('GazeboModels', {'aruco_map': aruco_map, 'user_objects': user_objects['models'], 'user_sid': data})
+
+
+class MyHandler(FileSystemEventHandler):
+    def on_any_event(self, event):
+        result = [get_directory_structure(rootdir=f'/home/{instance_name}/FILES')]
+        sio.emit('Files', {'user_sid': user_sid, 'files': result})
+        pass
+
+
+observer = Observer()
+observer.schedule(MyHandler(), f'/home/{instance_name}/FILES', recursive=True)
+observer.start()
+observer.join()
