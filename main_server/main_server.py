@@ -28,6 +28,7 @@ terminals_list = {}
 
 @sio.on('ConnectSubServer')  # add subserver sid to dict
 def new_subserver(sid, data):
+    print('SubServerConnected')
     subserver_list[sid] = data
 
 
@@ -97,14 +98,14 @@ def created(sid, data):
 @sio.on('GetInstances')  # getting username and running conts for client by uid
 def get_username(sid, data):
     user = users.find_one({'uid': data})  # find user in db
-
+    print(user)
     if user['cont_list'] != {}:  # if user conts is not none
         for subserver_sid in subserver_list:
             if data in subserver_list[subserver_sid]['users_list']:  # find user subserver
                 # send get running conts socket to subserver
                 sio.emit('Instances', {'cont_list': user['cont_list'], 'user_sid': sid}, room=subserver_sid)
     else:  # else there are no containers
-        sio.emit('Instances', {})
+        sio.emit('Instances', {}, room=sid)
 
 
 @sio.on('RunningInstances')  # running cont list to client
@@ -181,23 +182,23 @@ def get_cont_data(sid, data):
     if access:
         if data['instance_id'] in cont_server_list:
             sio.emit("InstanceData", {'instance_name': cont_name,
-                                      'instance_state': 'Running', 'user_templates': user['templates']})
+                                      'instance_state': 'Running', 'user_templates': user['templates']},room=sid)
 
         else:
             sio.emit("InstanceData", {'instance_name': cont_name,
-                                      'instance_state': 'Stopped', 'user_templates': user['templates']})
+                                      'instance_state': 'Stopped', 'user_templates': user['templates']}, room=sid)
 
     else:
-        sio.emit("InstanceData", {'instance_name': None, 'instance_state': 'No access'})
+        sio.emit("InstanceData", {'instance_name': None, 'instance_state': 'No access'}, room=sid)
 
 
 @sio.on('CreateNewTemplate')
 def create_new_template(sid, data):
-    print()
+    print(data)
     data['sid'] = sid
 
     for subserver_sid in subserver_list:
-        if data['uid'] in subserver_list[subserver_sid]['users_list']:  # find user subserver
+        if data['instanceID'] in subserver_list[subserver_sid]['cont_list']:  # find cont subserver
             sio.emit('CreateNewTemplate', data, room=subserver_sid)
 
 
@@ -207,11 +208,11 @@ def template_created(sid, data):
     data.pop('server_data')
     sid = data.pop('sid')
     uid = data.pop('uid')
-    data.pop("_id")
     data['date'] = datetime.now().strftime("%d.%m.%Y")
     users.update_one({"uid": uid}, {"$push": {"templates": data}})
+    print(data)
     templates.insert_one(data)
-    sio.emit('TemplateCreated', data, room=sid)  # confirm socker from client
+    sio.emit('TemplateCreated', 'confirm', room=sid)  # confirm socker from client
 
 
 @sio.on('InstallTemplate')
@@ -224,16 +225,14 @@ def install_template(sid, data):
 
 @sio.on('TemplateInstalled')
 def template_installed(sid, data):
-    subserver_list[sid] = data['server_data']
-    user_sid = data.pop('user_sid')
-    sio.emit('TemplateInstalled', room=user_sid)
+    sio.emit('TemplateInstalled', room=data)
 
 
 @sio.on('RevertToInitial')
 def revert_to_initial(sid, data):
     for subserver_sid in subserver_list:
         if data in subserver_list[subserver_sid]['cont_list']:  # find user subserver
-            sio.emit('RevertToInitial', data, room=subserver_sid)
+            sio.emit('RevertToInitial', {'instanceID': data, 'sid': sid}, room=subserver_sid)
 
 
 @sio.on('DeleteTemplate')
@@ -244,10 +243,17 @@ def delete_template(sid, data):
     templates.delete_one({'instanceID': instance_id})
 
     user['templates'].remove(next(item for item in user['templates'] if item["instanceID"] == instance_id))
+    users.update_one({"uid": data['uid']}, {"$set": {"templates": user['templates']}})
 
     for subserver_sid in subserver_list:
-        if data in subserver_list[subserver_sid]['cont_list']:  # find user subserver
+        if instance_id in subserver_list[subserver_sid]['cont_list']:  # find user subserver
             sio.emit('DeleteTemplate', instance_id, room=subserver_sid)
+
+
+@sio.on('GetUserTemplates')
+def get_templates(sid, data):
+    user = users.find_one({'uid': data})
+    sio.emit('UserTemplates', user['templates'])
 
 
 @sio.on('GetTemplates')
@@ -383,6 +389,17 @@ def write_file(sid, data):
     sio.emit('WriteFile', {'path': data['path'], 'value': data['value']}, room=cont_server_list[data['instanceID']])
 
 
+@sio.on('ReadImage')
+def read_image(sid, data):
+    sio.emit('ReadImage', {'path': data['path'], 'type': data['type'],
+                           'user_sid': sid}, room=cont_server_list[data['instanceID']])
+
+
+@sio.on('ImageData')
+def image_data(sid, data):
+    sio.emit('ImageData', {'type': data['type'], 'content': data['content']}, room=data['user_sid'])
+
+
 @sio.on('StopGazebo')  # stop gazebo
 def stop_gazebo(sid, data):
     sio.emit('StopGazebo', sid, room=terminals_list[data])
@@ -411,7 +428,7 @@ def edit_marker(sid, data):
     sio.emit('EditMarker', data, cont_server_list[instance_id])
 
 
-@sio.on('AddMarker')  # delete aruco marker
+@sio.on('AddMarker')  # add aruco marker
 def delete_marker(sid, data):
     instance_id = data.pop('instanceID')
     sio.emit('AddMarker', data, cont_server_list[instance_id])
@@ -423,7 +440,7 @@ def delete_marker(sid, data):
     sio.emit('DeleteMarker', data, cont_server_list[instance_id])
 
 
-@sio.on('DeleteCube')  # delete aruco marker
+@sio.on('DeleteCube')  # delete cube
 def delete_marker(sid, data):
     sio.emit('DeleteCube', data['model_id'], cont_server_list[data['instanceID']])
 
